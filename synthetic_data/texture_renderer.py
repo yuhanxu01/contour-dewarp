@@ -27,6 +27,24 @@ class ContentType(Enum):
     MIXED_LAYOUT = "mixed_layout"
     HANDWRITTEN = "handwritten"
     TECHNICAL = "technical"  # Diagrams, formulas
+    # 新增练习本类型
+    NOTEBOOK_GRID = "notebook_grid"           # 网格本（方格纸）
+    NOTEBOOK_LINED = "notebook_lined"         # 横线本
+    NOTEBOOK_GRID_TEXT = "notebook_grid_text"   # 网格本带文字
+    NOTEBOOK_LINED_TEXT = "notebook_lined_text" # 横线本带文字
+
+
+class PaperStyle(Enum):
+    """纸张样式"""
+    PLAIN = "plain"                 # 普通白纸
+    GRID_SMALL = "grid_small"       # 小方格（5mm）
+    GRID_MEDIUM = "grid_medium"     # 中方格（7mm）
+    GRID_LARGE = "grid_large"       # 大方格（10mm）
+    LINED_NARROW = "lined_narrow"   # 窄行（6mm）
+    LINED_MEDIUM = "lined_medium"   # 中行（8mm）
+    LINED_WIDE = "lined_wide"       # 宽行（10mm）
+    DOT_GRID = "dot_grid"           # 点阵格
+    GRAPH = "graph"                 # 坐标纸（带粗线）
 
 
 @dataclass
@@ -142,6 +160,17 @@ class TextureRenderer:
             texture = self._add_technical_content(texture, **kwargs)
         elif content_type == ContentType.HANDWRITTEN:
             texture = self._add_handwritten_style(texture, language, **kwargs)
+        # 新增练习本类型
+        elif content_type == ContentType.NOTEBOOK_GRID:
+            texture = self._add_grid_lines(texture, **kwargs)
+        elif content_type == ContentType.NOTEBOOK_LINED:
+            texture = self._add_horizontal_lines(texture, **kwargs)
+        elif content_type == ContentType.NOTEBOOK_GRID_TEXT:
+            texture = self._add_grid_lines(texture, **kwargs)
+            texture = self._add_handwritten_style(texture, language, **kwargs)
+        elif content_type == ContentType.NOTEBOOK_LINED_TEXT:
+            texture = self._add_horizontal_lines(texture, **kwargs)
+            texture = self._add_handwritten_style(texture, language, **kwargs)
 
         return texture
 
@@ -166,6 +195,196 @@ class TextureRenderer:
             # Slight yellowing
             texture[:, :, 2] = np.clip(texture[:, :, 2] * age_factor, 0, 255).astype(np.uint8)
             texture[:, :, 0] = np.clip(texture[:, :, 0] * (age_factor * 0.98), 0, 255).astype(np.uint8)
+
+        return texture
+
+    def _add_grid_lines(
+        self,
+        texture: np.ndarray,
+        paper_style: Optional[PaperStyle] = None,
+        line_color: Optional[Tuple[int, int, int]] = None,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        添加网格线（方格纸效果）。
+
+        Args:
+            texture: 输入纹理
+            paper_style: 纸张样式（决定网格大小）
+            line_color: 线条颜色
+        """
+        h, w, _ = texture.shape
+
+        # 随机选择样式
+        if paper_style is None:
+            paper_style = self.rng.choice([
+                PaperStyle.GRID_SMALL,
+                PaperStyle.GRID_MEDIUM,
+                PaperStyle.GRID_LARGE,
+                PaperStyle.DOT_GRID,
+                PaperStyle.GRAPH,
+            ])
+
+        # 根据样式确定网格间距（像素）
+        # 假设纹理代表约 200mm x 280mm 的纸张
+        scale = h / 280.0  # pixels per mm
+
+        if paper_style == PaperStyle.GRID_SMALL:
+            spacing = int(5 * scale)  # 5mm 方格
+        elif paper_style == PaperStyle.GRID_MEDIUM:
+            spacing = int(7 * scale)  # 7mm 方格
+        elif paper_style == PaperStyle.GRID_LARGE:
+            spacing = int(10 * scale)  # 10mm 方格
+        elif paper_style == PaperStyle.DOT_GRID:
+            spacing = int(5 * scale)  # 5mm 点阵
+        elif paper_style == PaperStyle.GRAPH:
+            spacing = int(5 * scale)  # 5mm 小格
+        else:
+            spacing = int(7 * scale)
+
+        spacing = max(8, spacing)  # 最小8像素间距
+
+        # 线条颜色 - 练习本通常是浅蓝色或浅灰色
+        if line_color is None:
+            color_choice = self.rng.choice(['blue', 'gray', 'green'])
+            if color_choice == 'blue':
+                line_color = (220, 200, 180)  # BGR - 浅蓝色
+            elif color_choice == 'gray':
+                line_color = (200, 200, 200)  # 浅灰色
+            else:
+                line_color = (200, 220, 200)  # 浅绿色
+
+        # 边距
+        margin = kwargs.get('margin', int(20 * scale))
+
+        if paper_style == PaperStyle.DOT_GRID:
+            # 点阵网格
+            dot_radius = max(1, int(scale * 0.3))
+            for y in range(margin, h - margin, spacing):
+                for x in range(margin, w - margin, spacing):
+                    cv2.circle(texture, (x, y), dot_radius, line_color, -1)
+
+        elif paper_style == PaperStyle.GRAPH:
+            # 坐标纸 - 细线和粗线组合
+            thin_color = line_color
+            # 粗线颜色更深
+            thick_color = tuple(max(0, c - 40) for c in line_color)
+
+            major_spacing = spacing * 5  # 每5个小格一条粗线
+
+            # 画细线
+            for y in range(margin, h - margin, spacing):
+                thickness = 2 if (y - margin) % major_spacing == 0 else 1
+                color = thick_color if thickness == 2 else thin_color
+                cv2.line(texture, (margin, y), (w - margin, y), color, thickness)
+
+            for x in range(margin, w - margin, spacing):
+                thickness = 2 if (x - margin) % major_spacing == 0 else 1
+                color = thick_color if thickness == 2 else thin_color
+                cv2.line(texture, (x, margin), (x, h - margin), color, thickness)
+
+        else:
+            # 普通网格线
+            line_thickness = kwargs.get('line_thickness', 1)
+
+            # 水平线
+            for y in range(margin, h - margin, spacing):
+                cv2.line(texture, (margin, y), (w - margin, y), line_color, line_thickness)
+
+            # 垂直线
+            for x in range(margin, w - margin, spacing):
+                cv2.line(texture, (x, margin), (x, h - margin), line_color, line_thickness)
+
+        # 可选：添加边框
+        if kwargs.get('add_border', self.rng.random() > 0.7):
+            border_color = tuple(max(0, c - 30) for c in line_color)
+            cv2.rectangle(texture, (margin, margin), (w - margin, h - margin), border_color, 2)
+
+        return texture
+
+    def _add_horizontal_lines(
+        self,
+        texture: np.ndarray,
+        paper_style: Optional[PaperStyle] = None,
+        line_color: Optional[Tuple[int, int, int]] = None,
+        **kwargs
+    ) -> np.ndarray:
+        """
+        添加水平横线（横线本效果）。
+
+        Args:
+            texture: 输入纹理
+            paper_style: 纸张样式（决定行距）
+            line_color: 线条颜色
+        """
+        h, w, _ = texture.shape
+
+        # 随机选择样式
+        if paper_style is None:
+            paper_style = self.rng.choice([
+                PaperStyle.LINED_NARROW,
+                PaperStyle.LINED_MEDIUM,
+                PaperStyle.LINED_WIDE,
+            ])
+
+        # 根据样式确定行距
+        scale = h / 280.0  # pixels per mm
+
+        if paper_style == PaperStyle.LINED_NARROW:
+            spacing = int(6 * scale)  # 6mm 行距
+        elif paper_style == PaperStyle.LINED_MEDIUM:
+            spacing = int(8 * scale)  # 8mm 行距
+        elif paper_style == PaperStyle.LINED_WIDE:
+            spacing = int(10 * scale)  # 10mm 行距
+        else:
+            spacing = int(8 * scale)
+
+        spacing = max(12, spacing)  # 最小12像素行距
+
+        # 线条颜色
+        if line_color is None:
+            color_choice = self.rng.choice(['blue', 'gray', 'black'])
+            if color_choice == 'blue':
+                line_color = (220, 190, 170)  # BGR - 浅蓝色
+            elif color_choice == 'gray':
+                line_color = (190, 190, 190)  # 浅灰色
+            else:
+                line_color = (180, 180, 180)  # 更深的灰色
+
+        # 边距
+        margin_left = kwargs.get('margin_left', int(25 * scale))
+        margin_right = kwargs.get('margin_right', int(15 * scale))
+        margin_top = kwargs.get('margin_top', int(30 * scale))
+        margin_bottom = kwargs.get('margin_bottom', int(20 * scale))
+
+        line_thickness = kwargs.get('line_thickness', 1)
+
+        # 画横线
+        for y in range(margin_top, h - margin_bottom, spacing):
+            cv2.line(texture, (margin_left, y), (w - margin_right, y), line_color, line_thickness)
+
+        # 可选：添加左侧红色竖线（像作文本）
+        if kwargs.get('add_margin_line', self.rng.random() > 0.5):
+            margin_line_x = margin_left - int(5 * scale)
+            margin_line_color = (150, 150, 220)  # BGR - 浅红色
+            cv2.line(texture, (margin_line_x, margin_top - int(5 * scale)),
+                    (margin_line_x, h - margin_bottom + int(5 * scale)), margin_line_color, 1)
+
+        # 可选：添加顶部标题线（双横线）
+        if kwargs.get('add_header_line', self.rng.random() > 0.7):
+            header_y = margin_top - int(15 * scale)
+            if header_y > 10:
+                header_color = tuple(max(0, c - 20) for c in line_color)
+                cv2.line(texture, (margin_left, header_y), (w - margin_right, header_y), header_color, 1)
+                cv2.line(texture, (margin_left, header_y + 3), (w - margin_right, header_y + 3), header_color, 1)
+
+        # 可选：添加装订孔标记
+        if kwargs.get('add_punch_holes', self.rng.random() > 0.8):
+            hole_x = int(15 * scale)
+            hole_positions = [h // 4, h // 2, 3 * h // 4]
+            hole_color = (210, 210, 210)
+            for hole_y in hole_positions:
+                cv2.circle(texture, (hole_x, hole_y), int(3 * scale), hole_color, 2)
 
         return texture
 
@@ -674,13 +893,29 @@ class TextureRenderer:
             orig_size = self.texture_size
             self.texture_size = (orig_size[0], orig_size[1] * 2)
 
-        content_types = [
+        # 原有的文档类型
+        document_types = [
             ContentType.TEXT_ONLY,
             ContentType.TEXT_WITH_IMAGES,
             ContentType.MIXED_LAYOUT,
             ContentType.TECHNICAL,
         ]
-        content_type = self.rng.choice(content_types)
+
+        # 新增的练习本类型
+        notebook_types = [
+            ContentType.NOTEBOOK_GRID,
+            ContentType.NOTEBOOK_LINED,
+            ContentType.NOTEBOOK_GRID_TEXT,
+            ContentType.NOTEBOOK_LINED_TEXT,
+            ContentType.HANDWRITTEN,
+        ]
+
+        # 40%概率选择练习本类型，60%概率选择普通文档类型
+        if self.rng.random() < 0.4:
+            content_type = self.rng.choice(notebook_types)
+        else:
+            content_type = self.rng.choice(document_types)
+
         language = self.rng.choice(['english', 'chinese'])
 
         texture = self.generate_flat_texture(

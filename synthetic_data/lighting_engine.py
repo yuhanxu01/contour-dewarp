@@ -22,6 +22,25 @@ class LightType(Enum):
     AMBIENT = "ambient"       # Ambient light (uniform)
 
 
+class LightingScenario(Enum):
+    """Predefined lighting scenarios for diversity"""
+    OVERHEAD = "overhead"           # 顶光 - 正上方照射
+    LEFT_SIDE = "left_side"         # 左侧光
+    RIGHT_SIDE = "right_side"       # 右侧光
+    FRONT = "front"                 # 正面光
+    BACK = "back"                   # 背光/逆光
+    TOP_LEFT = "top_left"           # 左上方
+    TOP_RIGHT = "top_right"         # 右上方
+    BOTTOM_LEFT = "bottom_left"     # 左下方
+    BOTTOM_RIGHT = "bottom_right"   # 右下方
+    DRAMATIC = "dramatic"           # 戏剧性侧光
+    SOFT_DIFFUSE = "soft_diffuse"   # 柔和漫射光
+    MULTI_POINT = "multi_point"     # 多点光源
+    WINDOW = "window"               # 窗户光（单侧强光）
+    DESK_LAMP = "desk_lamp"         # 台灯（点光源）
+    STUDIO = "studio"               # 摄影棚三点光
+
+
 @dataclass
 class LightSource:
     """Represents a light source in the scene"""
@@ -109,43 +128,275 @@ class LightingEngine:
 
         self.lights = [main_light, fill_light, ambient_light]
 
-    def set_random_lighting(self):
-        """Randomize lighting setup for variety"""
+    def set_lighting_scenario(self, scenario: LightingScenario):
+        """
+        Set a specific lighting scenario for diverse lighting conditions.
+
+        Args:
+            scenario: The lighting scenario to apply
+        """
         self.lights = []
 
-        # Random main light
-        theta = self.rng.uniform(-0.5, 0.5)  # Horizontal angle
-        phi = self.rng.uniform(0.3, 0.8)     # Vertical angle
+        # Color temperature variations
+        warm_color = (1.05, 1.0, 0.92)    # 暖色（钨丝灯）
+        cool_color = (0.92, 0.97, 1.05)   # 冷色（日光）
+        neutral_color = (1.0, 1.0, 1.0)
+
+        if scenario == LightingScenario.OVERHEAD:
+            # 正上方顶光
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.0, 0.0, 1.0]),
+                color=neutral_color,
+                intensity=0.9
+            ))
+
+        elif scenario == LightingScenario.LEFT_SIDE:
+            # 左侧强光
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([-0.8, -0.2, 0.5]),
+                color=cool_color,
+                intensity=0.85
+            ))
+
+        elif scenario == LightingScenario.RIGHT_SIDE:
+            # 右侧强光
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.8, -0.2, 0.5]),
+                color=cool_color,
+                intensity=0.85
+            ))
+
+        elif scenario == LightingScenario.FRONT:
+            # 正面光
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.0, -0.9, 0.4]),
+                color=neutral_color,
+                intensity=0.8
+            ))
+
+        elif scenario == LightingScenario.BACK:
+            # 背光/逆光（从后方照射）
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.0, 0.8, 0.6]),
+                color=warm_color,
+                intensity=0.7
+            ))
+            # 添加弱补光
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.0, -0.5, 0.8]),
+                color=cool_color,
+                intensity=0.25
+            ))
+
+        elif scenario == LightingScenario.TOP_LEFT:
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([-0.6, -0.4, 0.7]),
+                color=neutral_color,
+                intensity=0.85
+            ))
+
+        elif scenario == LightingScenario.TOP_RIGHT:
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.6, -0.4, 0.7]),
+                color=neutral_color,
+                intensity=0.85
+            ))
+
+        elif scenario == LightingScenario.BOTTOM_LEFT:
+            # 左下方光（较少见，戏剧效果）
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([-0.6, 0.5, 0.5]),
+                color=warm_color,
+                intensity=0.75
+            ))
+
+        elif scenario == LightingScenario.BOTTOM_RIGHT:
+            # 右下方光
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.6, 0.5, 0.5]),
+                color=warm_color,
+                intensity=0.75
+            ))
+
+        elif scenario == LightingScenario.DRAMATIC:
+            # 戏剧性侧光 - 强烈的单侧光，几乎没有补光
+            side = self.rng.choice([-1, 1])
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([side * 0.95, -0.1, 0.3]),
+                color=warm_color,
+                intensity=1.0
+            ))
+            # 很弱的环境光
+            self.lights.append(LightSource(
+                light_type=LightType.AMBIENT,
+                position=np.array([0, 0, 1]),
+                color=cool_color,
+                intensity=0.1
+            ))
+            return  # 跳过默认环境光
+
+        elif scenario == LightingScenario.SOFT_DIFFUSE:
+            # 柔和漫射光 - 多个弱光源
+            for angle in [0, np.pi/2, np.pi, 3*np.pi/2]:
+                self.lights.append(LightSource(
+                    light_type=LightType.DIRECTIONAL,
+                    position=np.array([np.cos(angle) * 0.4, np.sin(angle) * 0.4, 0.8]),
+                    color=neutral_color,
+                    intensity=0.25
+                ))
+            # 较强环境光
+            self.lights.append(LightSource(
+                light_type=LightType.AMBIENT,
+                position=np.array([0, 0, 1]),
+                color=neutral_color,
+                intensity=0.35
+            ))
+            return
+
+        elif scenario == LightingScenario.MULTI_POINT:
+            # 多点光源 - 随机2-4个光源
+            num_lights = self.rng.integers(2, 5)
+            for i in range(num_lights):
+                angle = self.rng.uniform(0, 2 * np.pi)
+                elevation = self.rng.uniform(0.3, 0.8)
+                temp = self.rng.uniform(-0.05, 0.05)
+                self.lights.append(LightSource(
+                    light_type=LightType.DIRECTIONAL,
+                    position=np.array([
+                        np.cos(angle) * np.cos(elevation),
+                        np.sin(angle) * np.cos(elevation),
+                        np.sin(elevation)
+                    ]),
+                    color=(1.0 + temp, 1.0, 1.0 - temp),
+                    intensity=self.rng.uniform(0.3, 0.6)
+                ))
+
+        elif scenario == LightingScenario.WINDOW:
+            # 窗户光 - 单侧强烈平行光
+            side = self.rng.choice([-1, 1])
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([side * 0.7, -0.3, 0.6]),
+                color=cool_color,  # 日光偏冷
+                intensity=0.95
+            ))
+            # 环境反射光
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([-side * 0.3, 0.2, 0.5]),
+                color=warm_color,  # 室内反射偏暖
+                intensity=0.15
+            ))
+
+        elif scenario == LightingScenario.DESK_LAMP:
+            # 台灯 - 点光源效果
+            lamp_x = self.rng.uniform(-0.5, 0.5)
+            lamp_y = self.rng.uniform(-0.6, -0.3)
+            self.lights.append(LightSource(
+                light_type=LightType.POINT,
+                position=np.array([lamp_x * 200, lamp_y * 200, 150]),  # 物理位置
+                color=warm_color,  # 台灯通常偏暖
+                intensity=1.2,
+                falloff=0.001
+            ))
+
+        elif scenario == LightingScenario.STUDIO:
+            # 摄影棚三点光：主光、补光、轮廓光
+            # 主光（Key light）- 45度角
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.5, -0.5, 0.7]),
+                color=neutral_color,
+                intensity=0.7
+            ))
+            # 补光（Fill light）- 对侧，较弱
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([-0.4, -0.3, 0.5]),
+                color=neutral_color,
+                intensity=0.3
+            ))
+            # 轮廓光（Rim light）- 后方
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=np.array([0.0, 0.6, 0.4]),
+                color=cool_color,
+                intensity=0.25
+            ))
+
+        # 添加默认环境光（除非场景已经处理）
+        self.lights.append(LightSource(
+            light_type=LightType.AMBIENT,
+            position=np.array([0, 0, 1]),
+            color=neutral_color,
+            intensity=self.rng.uniform(0.15, 0.25)
+        ))
+
+    def set_random_lighting(self, use_scenarios: bool = True):
+        """
+        Randomize lighting setup for variety.
+
+        Args:
+            use_scenarios: If True, randomly select from predefined scenarios.
+                          If False, use completely random parameters.
+        """
+        if use_scenarios and self.rng.random() > 0.3:
+            # 70% 概率使用预定义场景
+            scenarios = list(LightingScenario)
+            scenario = self.rng.choice(scenarios)
+            self.set_lighting_scenario(scenario)
+            return
+
+        # 完全随机光照
+        self.lights = []
+
+        # Random main light - 扩大角度范围，覆盖所有方向
+        theta = self.rng.uniform(-np.pi, np.pi)  # 完整水平角度范围
+        phi = self.rng.uniform(0.1, 0.9)         # 更广的垂直角度范围
 
         main_dir = np.array([
-            np.sin(theta),
-            -np.cos(phi),
+            np.sin(theta) * np.cos(phi),
+            np.cos(theta) * np.cos(phi),
             np.sin(phi)
         ])
         main_dir = main_dir / np.linalg.norm(main_dir)
 
-        # Random warm/cool tint
-        temp_offset = self.rng.uniform(-0.05, 0.05)
+        # Random warm/cool tint - 更大的色温变化
+        temp_offset = self.rng.uniform(-0.1, 0.1)
         main_color = (
-            1.0 + temp_offset,
+            np.clip(1.0 + temp_offset, 0.85, 1.15),
             1.0,
-            1.0 - temp_offset
+            np.clip(1.0 - temp_offset, 0.85, 1.15)
         )
 
         main_light = LightSource(
             light_type=LightType.DIRECTIONAL,
             position=main_dir,
             color=main_color,
-            intensity=self.rng.uniform(0.6, 1.0)
+            intensity=self.rng.uniform(0.5, 1.1)
         )
         self.lights.append(main_light)
 
-        # Sometimes add a secondary light
-        if self.rng.random() > 0.3:
+        # 50%概率添加第二光源
+        if self.rng.random() > 0.5:
+            # 补光方向与主光相反或正交
+            fill_theta = theta + self.rng.uniform(np.pi/2, 3*np.pi/2)
+            fill_phi = self.rng.uniform(0.2, 0.7)
             fill_dir = np.array([
-                -main_dir[0] + self.rng.uniform(-0.2, 0.2),
-                main_dir[1] * 0.5,
-                main_dir[2] * 0.8
+                np.sin(fill_theta) * np.cos(fill_phi),
+                np.cos(fill_theta) * np.cos(fill_phi),
+                np.sin(fill_phi)
             ])
             fill_dir = fill_dir / np.linalg.norm(fill_dir)
 
@@ -153,16 +404,34 @@ class LightingEngine:
                 light_type=LightType.DIRECTIONAL,
                 position=fill_dir,
                 color=(1.0, 1.0, 1.0),
-                intensity=self.rng.uniform(0.1, 0.4)
+                intensity=self.rng.uniform(0.1, 0.5)
             )
             self.lights.append(fill_light)
+
+        # 30%概率添加第三光源
+        if self.rng.random() > 0.7:
+            third_theta = self.rng.uniform(-np.pi, np.pi)
+            third_phi = self.rng.uniform(0.1, 0.5)
+            third_dir = np.array([
+                np.sin(third_theta) * np.cos(third_phi),
+                np.cos(third_theta) * np.cos(third_phi),
+                np.sin(third_phi)
+            ])
+            third_dir = third_dir / np.linalg.norm(third_dir)
+
+            self.lights.append(LightSource(
+                light_type=LightType.DIRECTIONAL,
+                position=third_dir,
+                color=self.rng.choice([(1.05, 1.0, 0.95), (0.95, 1.0, 1.05)]),
+                intensity=self.rng.uniform(0.1, 0.3)
+            ))
 
         # Always add ambient
         ambient_light = LightSource(
             light_type=LightType.AMBIENT,
             position=np.array([0, 0, 1]),
             color=(1.0, 1.0, 1.0),
-            intensity=self.rng.uniform(0.15, 0.3)
+            intensity=self.rng.uniform(0.1, 0.35)
         )
         self.lights.append(ambient_light)
 

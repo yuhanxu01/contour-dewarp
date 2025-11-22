@@ -19,8 +19,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
 from .page_mesh import PageMeshGenerator, CurvatureType, PageGeometry
-from .texture_renderer import TextureRenderer, ContentType
-from .lighting_engine import LightingEngine, LightSource, LightType
+from .texture_renderer import TextureRenderer, ContentType, PaperStyle
+from .lighting_engine import LightingEngine, LightSource, LightType, LightingScenario
 
 
 @dataclass
@@ -60,11 +60,23 @@ class SynthesisConfig:
         'chinese': 0.4
     })
     content_type_probabilities: Dict[str, float] = field(default_factory=lambda: {
-        'text_only': 0.4,
-        'text_with_images': 0.3,
-        'mixed_layout': 0.2,
-        'technical': 0.1
+        'text_only': 0.25,
+        'text_with_images': 0.15,
+        'mixed_layout': 0.1,
+        'technical': 0.05,
+        # 新增练习本类型
+        'notebook_grid': 0.1,
+        'notebook_lined': 0.1,
+        'notebook_grid_text': 0.1,
+        'notebook_lined_text': 0.1,
+        'handwritten': 0.05
     })
+
+    # Curvature type settings - 控制平滑弯曲与锐利折痕的比例
+    crease_probability: float = 0.4  # 40%概率使用锐利折痕类型
+
+    # Lighting settings - 是否使用预定义光照场景
+    use_lighting_scenarios: bool = True
 
 
 @dataclass
@@ -168,13 +180,30 @@ class SynthesisDataGenerator:
             metadata['curvature_type'] = 'book_spine'
         else:
             if curvature_type is None:
-                curvature_type = self.rng.choice([
+                # 平滑弯曲类型
+                smooth_types = [
                     CurvatureType.CYLINDRICAL,
                     CurvatureType.BOOK_SPINE,
                     CurvatureType.WAVE,
                     CurvatureType.COMBINED,
                     CurvatureType.PERSPECTIVE,
-                ])
+                ]
+                # 锐利折痕类型
+                crease_types = [
+                    CurvatureType.SINGLE_CREASE,
+                    CurvatureType.MULTIPLE_CREASES,
+                    CurvatureType.HORIZONTAL_FOLD,
+                    CurvatureType.VERTICAL_FOLD,
+                    CurvatureType.CROSS_FOLD,
+                    CurvatureType.DIAGONAL_FOLD,
+                    CurvatureType.LETTER_FOLD,
+                ]
+                # 根据配置的概率选择类型
+                if self.rng.random() < self.config.crease_probability:
+                    curvature_type = self.rng.choice(crease_types)
+                else:
+                    curvature_type = self.rng.choice(smooth_types)
+
             geometry = self.mesh_generator.generate_single_page(
                 curvature_type=curvature_type,
                 curvature_strength=curvature_strength
@@ -221,13 +250,21 @@ class SynthesisDataGenerator:
 
         # Setup lighting
         if self.config.randomize_lighting:
-            self.lighting_engine.set_random_lighting()
+            self.lighting_engine.set_random_lighting(
+                use_scenarios=self.config.use_lighting_scenarios
+            )
 
         # Store lighting info
-        metadata['lighting'] = {
+        lighting_info = {
             'num_lights': len(self.lighting_engine.lights),
             'main_light_intensity': float(self.lighting_engine.lights[0].intensity) if self.lighting_engine.lights else 0
         }
+        # 记录光源方向
+        if self.lighting_engine.lights:
+            main_light = self.lighting_engine.lights[0]
+            lighting_info['main_light_direction'] = main_light.position.tolist()
+            lighting_info['main_light_type'] = main_light.light_type.value
+        metadata['lighting'] = lighting_info
 
         # Resize normals and depth for lighting
         h_out, w_out = self.config.output_size
@@ -436,6 +473,25 @@ class SynthesisDataGenerator:
             for ct in set(content_types):
                 content_dist[ct] = content_types.count(ct) / len(content_types)
             summary['statistics']['content_type_distribution'] = content_dist
+
+            # Curvature type distribution (包括新增的折痕类型)
+            curvature_types = [r.metadata.get('curvature_type', 'unknown') for r in results]
+            curvature_dist = {}
+            for ct in set(curvature_types):
+                curvature_dist[ct] = curvature_types.count(ct) / len(curvature_types)
+            summary['statistics']['curvature_type_distribution'] = curvature_dist
+
+            # 统计锐利折痕vs平滑弯曲的比例
+            crease_types = ['single_crease', 'multiple_creases', 'horizontal_fold',
+                           'vertical_fold', 'cross_fold', 'diagonal_fold', 'letter_fold']
+            crease_count = sum(1 for ct in curvature_types if ct in crease_types)
+            summary['statistics']['crease_ratio'] = crease_count / len(curvature_types)
+
+            # 练习本类型比例
+            notebook_types_list = ['notebook_grid', 'notebook_lined', 'notebook_grid_text',
+                                   'notebook_lined_text', 'handwritten']
+            notebook_count = sum(1 for ct in content_types if ct in notebook_types_list)
+            summary['statistics']['notebook_ratio'] = notebook_count / len(content_types)
 
         summary_path = output_path / 'dataset_summary.json'
         with open(summary_path, 'w') as f:
